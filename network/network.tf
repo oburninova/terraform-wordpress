@@ -10,7 +10,6 @@ terraform {
   }
 }
 
-
 # =============== DATA ====================
 data "aws_availability_zones" "available" {}
 data "aws_ami" "latest_linux" {
@@ -157,18 +156,31 @@ resource "aws_route_table_association" "wordpress_rt_private" {
   }
 }
 
-# resource "tls_private_key" "ssh-key" {
-  # algorithm = "RSA"
-# }
+resource "aws_key_pair" "mykey" {
+  key_name   = "mykey"
+  public_key = file(var.PATH_TO_PUBLIC_KEY)
+}
 
 resource "aws_instance" "wordpress-ec2" {
   ami = data.aws_ami.latest_linux.id
   instance_type = "t2.micro"
   vpc_security_group_ids = [aws_security_group.wordpress-ec2-sg.id]
   subnet_id = aws_subnet.wordpress_public_subnet[0].id 
+  key_name      = aws_key_pair.mykey.key_name
+  user_data = file("user_data.sh")
   tags = {
     Name = "${var.project} - WebServer"
+  }
+  connection {
+    host        = coalesce(self.public_ip, self.private_ip)
+    type        = "ssh"
+    user        = var.INSTANCE_USERNAME
+    private_key = file(var.PATH_TO_PRIVATE_KEY)
   }  
+
+  depends_on = [
+    aws_db_instance.wordpress-db
+  ]
 }
 # ============== DB INSTANCE AND SECURITY GROUP =============
 
@@ -215,12 +227,12 @@ resource "aws_db_subnet_group" "db_subnet" {
   }
 
 resource "aws_db_instance" "wordpress-db" {
-  identifier = "mysql"
+  identifier = "mydb"
   allocated_storage    = 10
   engine               = "mysql"
   engine_version       = "5.7"
-  instance_class       = "db.t3.micro"
-  name                 = "mydb"
+  instance_class       = "db.t2.micro"
+  name                 = "wordpress"
   username             = "admin"
   password             = "adminadmin"
   parameter_group_name = "default.mysql5.7"
@@ -231,4 +243,8 @@ resource "aws_db_instance" "wordpress-db" {
   tags = {
     "Name" = "${var.project} - DB Server"
   }
+}
+
+output "db_endpoint" {
+  value = aws_db_instance.wordpress-db.endpoint
 }
